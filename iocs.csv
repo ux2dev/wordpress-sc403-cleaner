@@ -1,0 +1,54 @@
+type,value,confidence,role,source
+marker,SC_ADV_BEGIN,high,advanced-cache.php implant delimiter,mdpabel
+marker,SC_DB_BEGIN,high,db.php implant delimiter,mdpabel
+marker,SC_TH_BEGIN,high,theme functions.php implant delimiter,mdpabel
+marker,SC_ADV_BEGIN:4.0.3:d17ba8df,high,versioned advanced-cache marker,mdpabel
+marker,SC_DB_BEGIN:4.0.3:24263291,high,versioned db.php marker,mdpabel
+marker,SC_TH_BEGIN:4.0.3:ccd02512,high,versioned theme marker (site-specific suffix),mdpabel
+option,sc_payload_persistent,high,compressed payload store (257408 B observed),mdpabel
+option,sc_persist_manifest,high,persistence manifest,mdpabel
+option,sc_initialized,high,initialisation flag,mdpabel
+option,sc_last_recovery_check,high,recovery timing state,mdpabel
+option,sc_last_rpc,high,last working Ethereum RPC provider,mdpabel
+option,sc_last_fetch_ts,high,C2 fetch timing state,mdpabel
+transient,_transient_sc_payload_t,high,payload held as a transient (193053 B observed),mdpabel
+cron,sc_cron_fetch,high,self-repair event on a 36000 s interval,mdpabel/sevenlabs
+cron,w6yhmxe5vkco9gy,medium,60 s re-injection hook,sevenlabs
+cron,hn3wxc74vxys838mo9r,medium,60 s re-injection hook,sevenlabs
+cron,cd3kvvt4aebb860n_y_ul,medium,60 s re-injection hook,sevenlabs
+cron,tkrh9e3npp0dcdetstqbq6,medium,60 s re-injection hook,sevenlabs
+selector,0x3bc5de30,high,eth_call function selector used to resolve C2,mdpabel/monarx
+contract,0x9A4752cAA1C15868487A0ACb691F81bfA901E063,high,Ethereum dead-drop C2 resolver,mdpabel
+contract,0x839d1cE5c3F259e8d3D17114d7186EDabdbeA94b,high,Ethereum dead-drop C2 resolver,mdpabel
+contract,0x6d2c5435EF70196740a48904B69377935D50abBB,high,Ethereum dead-drop C2 resolver,mdpabel
+sha256,8284d68274c0475118732110680e38d9da27b4173997c0db0d9f6e5283109554,high,core payload (185171 B),mdpabel
+sha256,5e0634b36af4fab6931e3efc120e5baee1953f32f14a516cbc4c927786d4309c,high,hidden loader,mdpabel
+sha256,96d36f0432295b0a833e6d835c8f3100f900ace2f08f0584ea0d2a83e7df8b82,high,visible loader wrapper (231 B),mdpabel
+sha256,1bd222238cd2679cd8dcdd8e1d391339ae07f009b67277929951d18d75d55cf0,high,advanced-cache.php implant,mdpabel
+sha256,a3c6fcd1df2c1fec977427f056aa45852f7ae7a9f63ff79813057e451eeed6c3,high,db.php implant,mdpabel
+sha256,b516bd7eb514b80555fc3a04ac30405e52f128c6d08da3baf03e74f1ad2fe1fb,high,infected theme functions.php,mdpabel
+sha256,ac7c266d12c6d3d979594b4d74c545ecf2546ac704f2ac07bde1276010747c0d,high,malicious .user.ini,mdpabel
+sha256,7bafee00a010ed3db3521a89e8f5d50d2f677204c56995e99c7603768a9f0bd2,high,service-worker template (6429 B),mdpabel
+username_pattern,^(admin_|adm_|administrator_|backup_)[0-9a-f]{6,10}$,high,generated hidden administrator,mdpabel/monarx
+username,api_handler8c7ca775,medium,fraudulent administrator observed on edu.gov.sc,sevenlabs
+filename_pattern,.g_*.php,high,guard stub,monarx
+filename_pattern,<first 8 of md5(ABSPATH."ldr")>.php,high,loader; site-specific,mdpabel
+filename_pattern,<first 8 of md5(ABSPATH."zip")>.zip,high,ZIP replica; site-specific,mdpabel
+filename_pattern,<first 8 of md5(ABSPATH."inst")>.php,high,cache installer; site-specific,mdpabel
+filename_pattern,<first 8 of md5(ABSPATH."sw")>.js,high,service worker; site-specific,mdpabel
+filename_pattern,<first 10 of md5(ABSPATH."opt")>,high,database option name; site-specific,mdpabel
+filename,wp-content/mu-plugins/trace-store-x.php,medium,payload injector alias,sevenlabs
+filename,wp-content/advanced-cache.php,low,legitimate name; contents decide,mdpabel
+filename,wp-content/db.php,low,legitimate name; contents decide,mdpabel
+plugin_alias,trace-scanner-lite,medium,fake plugin identity (header claims v1.1.0),mdpabel
+plugin_alias,Trace Scanner Lite,medium,fake display name,mdpabel
+plugin_alias,sp-news-and-widget,medium,supply-chain entry plugin,sevenlabs
+plugin_alias,content-sync-helper,medium,supply-chain entry plugin,sevenlabs
+plugin_alias,advanced-product-maker-data,medium,supply-chain entry plugin,sevenlabs
+plugin_alias,wordpesso,medium,supply-chain entry plugin,sevenlabs
+rest_route,/wp-json/ticker/v1/update,medium,hidden REST endpoint,sevenlabs
+rest_route,/wp-json/ticker/v1/post,medium,hidden REST endpoint,sevenlabs
+rest_route,/wp-json/ticker/v1/sweep,medium,hidden REST endpoint,sevenlabs
+behaviour,filemtime mod 100000 == 93819,high,shared timestomp watermark,monarx
+behaviour,Service-Worker-Allowed: /,high,scope expansion for the browser implant,mdpabel
+behaviour,auto_prepend_file in .user.ini or .htaccess,high,pre-WordPress execution,all
