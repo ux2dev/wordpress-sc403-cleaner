@@ -46,6 +46,14 @@ Everything below follows from that.
   `SC_ADV_BEGIN:4.3.24:d17ba8df`) rather than just the marker name.
 - Known-hash check retained but labelled 4.0.3-era only, and it now says so when
   it finds nothing.
+- **Reads the implant's own scoreboard.** `sc_reins_<key>` holds
+  `"<day>|<count>"`, and `sc_reinstall_allowed()` refuses to rewrite a drop-in
+  once the count hits three for the current UTC day - so the malware counts your
+  deletions and then stops fighting until midnight. The scanner now decodes those
+  counters, converts the day number to a date, and says plainly when a site is in
+  backoff, because a clean result in that window proves nothing. Also decodes
+  `sc_ini_dead` (the `auto_prepend_file` circuit breaker), `sc_ini_fail`,
+  `sc_ht_fail` and `sc_fetch_fails`.
 - Summary text rewritten: restart the PHP-FPM pool *before* deleting files, and
   capture the database rows *before* cleaning them.
 
@@ -68,6 +76,8 @@ Everything below follows from that.
   minutes is real cost for no extra signal.
 - `wp eval 'print_r( SC403_Guard::report() );'` prints the derived names and
   current findings for a ticket or a handover.
+- Reports the `sc_reins_*` backoff state in wp-admin, with the same warning: a
+  site at the daily cap looks cleaned and is not.
 
 ### New files
 
@@ -82,11 +92,22 @@ Everything below follows from that.
   branch, and tombstones stale worker URLs recovered from orphaned rows. It
   deletes nothing and force-navigates nobody.
 
+### New: HOSTING-PROVIDERS.md
+
+A runbook for partners with root on the box, because two of the three controls
+that actually stop this are only reachable there - restarting the PHP workers,
+and one OS user per site. Fleet triage with exit codes, the access-log sweep for
+`?p=9XXXXXXX` (a detection only a provider can run across every account at once),
+the account-as-unit-of-infection rule, the pool-restart trap, the midnight-UTC
+verification trap, a customer notification template for the browser half, what
+not to do, platform hardening, a one-page checklist for L1, and when to stop
+cleaning and rebuild instead.
+
 ### Documentation
 
 - `README.md`: new sections on what changed between the builds, on names rather
   than hashes, and on the browser half. Full scanner output for a clean and an
-  infected site. Check table expanded from 12 to 15. Eradication order gains a
+  infected site. Check table expanded from 12 to 16. Eradication order gains a
   step 0 - capture `sc_c2_cache`, `sc_last_c2` and the derived `sw_url`,
   `sw_cached` and `issued` rows before anything is deleted, because none of
   those start with `sc_` and a `LIKE 'sc\_%'` cleanup destroys them.
@@ -108,6 +129,12 @@ they did it by hand. So the kill chain is now here, dry-run by default:
 
 - **`sc403-killchain.sh`** - K0 to K8 in order, in one script. Dry run until
   `--execute`. `--pool-cmd` is the argument that decides whether it works.
+  K2 targets the **site root's owner**, read off the filesystem, rather than the
+  invoking user: the guard daemon, the shared-memory segment and the PHP workers
+  belong to the site's OS user, so scoping them to `id -un` meant that running as
+  root - which the account-wide wrapper requires - found nothing, reported
+  success, and left both alive for K4 to feed. If K2 cannot complete, the chain
+  now stops before K3 rather than deleting files with the runtime still up.
 - **`sc403-superclean.sh`** - account-wide wrapper: per-site derived IoCs
   injected into the engine, service-worker evidence captured before the database
   cleanup destroys it, the neutralizer installed on every site afterwards, the

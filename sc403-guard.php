@@ -350,6 +350,7 @@ final class SC403_Guard {
         $findings = array_merge( $findings, $this->check_database() );
         $findings = array_merge( $findings, $this->check_derived_options() );
         $findings = array_merge( $findings, $this->check_orphan_options() );
+        $findings = array_merge( $findings, $this->check_fight_log() );
 
         $previous = (array) get_option( self::FINDINGS_OPT, [] );
         update_option( self::FINDINGS_OPT, $findings, false );
@@ -710,6 +711,75 @@ final class SC403_Guard {
             );
         }
         return array_slice( $findings, 0, 20 );
+    }
+
+    /**
+     * The implant's own record of how your cleanup went.
+     *
+     * Before rewriting a drop-in it consults sc_reinstall_allowed(), which reads
+     * sc_reins_<key> in the form "<day number>|<count>" and refuses the rewrite
+     * once the count reaches three for the current UTC day. So it counts how many
+     * times you have deleted each file, and after the third deletion in one day
+     * it stops putting it back - until midnight, when the day number changes.
+     *
+     * Which means a site in backoff looks cleaned and is not. Anyone who deleted
+     * the drop-ins three times, saw them stay gone and went home has verified
+     * nothing. That is worth saying out loud in the admin notice.
+     */
+    private function check_fight_log(): array {
+        global $wpdb;
+
+        $rows = $wpdb->get_results(
+            "SELECT option_name, option_value
+               FROM {$wpdb->options}
+              WHERE option_name LIKE 'sc\\_reins\\_%'
+                 OR option_name IN ('sc_ini_fail','sc_ini_dead','sc_ht_fail','sc_fetch_fails')",
+            ARRAY_A
+        );
+        if ( ! $rows ) {
+            return [];
+        }
+
+        $today    = (int) ( time() / 86400 );
+        $findings = [];
+        $capped   = false;
+
+        foreach ( (array) $rows as $row ) {
+            $name  = (string) $row['option_name'];
+            $value = (string) $row['option_value'];
+
+            if ( 0 === strpos( $name, 'sc_reins_' ) && false !== strpos( $value, '|' ) ) {
+                list( $day, $count ) = array_map( 'intval', explode( '|', $value, 2 ) );
+                if ( $day === $today && $count >= 3 ) {
+                    $capped = true;
+                    $findings[] = sprintf(
+                        '%s: %d rebuilds today - at the daily cap, so this file has stopped coming back on its own.',
+                        $name, $count
+                    );
+                } else {
+                    $findings[] = sprintf(
+                        '%s: %d rebuild(s) on %s.',
+                        $name, $count, gmdate( 'Y-m-d', $day * 86400 )
+                    );
+                }
+                continue;
+            }
+            if ( 'sc_ini_dead' === $name ) {
+                $findings[] = sprintf(
+                    'sc_ini_dead: the auto_prepend_file circuit breaker opened %d hours ago - its own canary refused the write.',
+                    (int) ( ( time() - (int) $value ) / 3600 )
+                );
+                continue;
+            }
+            $findings[] = sprintf( '%s = %s', $name, substr( $value, 0, 60 ) );
+        }
+
+        if ( $capped ) {
+            $findings[] = 'THIS SITE IS IN BACKOFF: a drop-in has hit three rebuilds today, so the implant '
+                . 'has stopped restoring it until midnight UTC. A site that looks clean right now is not '
+                . 'necessarily clean. Verify after 00:00 UTC, never before.';
+        }
+        return $findings;
     }
 
     /**

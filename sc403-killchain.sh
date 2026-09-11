@@ -266,9 +266,36 @@ k1_contain() { # $1 = site root
 # DOING THIS BEFORE K4 IS WHAT MAKES THE CLEANUP STICK.
 # ---------------------------------------------------------------------------
 
+# Who the malware's processes actually belong to.
+#
+# This is load-bearing and it is easy to get wrong. The implant's CLI guard
+# daemon, its shared-memory segment and the PHP workers all belong to the site's
+# OS user - NOT to whoever is running this script. Scoping K2 to `id -un` means
+# that running the script as root (which the header invites you to do, and which
+# the account-wide wrapper requires) looks for root's php processes, finds none,
+# reports success, and leaves the daemon and the shm replica alive. Then K4
+# deletes the files and they come straight back. That is the exact failure this
+# whole script exists to prevent, so derive the owner from the site itself.
+site_owner() { # $1 = site root
+  stat -c %U "$1" 2>/dev/null || stat -f %Su "$1" 2>/dev/null
+}
+
 k2_kill_runtime() { # $1 = site root
-  local root="$1" pid key seg
+  local root="$1" pid key seg owner me
   head1 "K2 kill runtime"
+
+  me=$(id -un)
+  owner=$(site_owner "$root")
+  [ -n "$owner" ] || owner="$me"
+
+  if [ "$owner" != "$me" ] && [ "$(id -u)" -ne 0 ]; then
+    crit "$root is owned by '$owner' but this script is running as '$me'."
+    note "K2 cannot see that user's PHP processes or shared memory, so the guard"
+    note "daemon and the SysV replica will survive and rebuild whatever K4 deletes."
+    note "Rerun as root, or as '$owner'. Continuing would be worse than stopping."
+    return 1
+  fi
+  [ "$owner" = "$me" ] || note "running as $me; targeting processes owned by $owner"
   # 2a. the guard daemon - its PID is helpfully recorded in .gl_<hash>
   derive_names "$root"
   for f in "$root/wp-content/$N_DIR/.gl_$N_G" "$root"/wp-content/.gl_* "$root"/wp-includes/.gl_*; do
@@ -277,15 +304,15 @@ k2_kill_runtime() { # $1 = site root
     [ -n "$pid" ] && act "kill guard daemon PID $pid (from $(basename "$f"))" kill -9 "$pid"
   done
   # 2b. any CLI php owned by us that is NOT a child of cron/sshd - report + kill
-  ps -u "$(id -un)" -o pid=,comm=,args= 2>/dev/null | grep -E 'php' | grep -v killchain | \
+  ps -u "$owner" -o pid=,comm=,args= 2>/dev/null | grep -E 'php' | grep -v killchain | \
   while read -r pid comm args; do
     crit "php process: $pid $args"
     act "kill $pid" kill -9 "$pid"
   done
   # 2c. SysV shared memory owned by us (the SCSHM1 replica lives here)
   if command -v ipcs >/dev/null 2>&1; then
-    ipcs -m 2>/dev/null | awk -v u="$(id -un)" '$3==u {print $2}' | while read -r seg; do
-      crit "shm segment $seg (own user)"
+    ipcs -m 2>/dev/null | awk -v u="$owner" '$3==u {print $2}' | while read -r seg; do
+      crit "shm segment $seg (owned by $owner)"
       act "ipcrm -m $seg" ipcrm -m "$seg"
     done
   fi
@@ -293,8 +320,8 @@ k2_kill_runtime() { # $1 = site root
   if [ -n "$POOL_CMD" ]; then
     act "pool restart: $POOL_CMD" sh -c "$POOL_CMD"
   else
-    act "shared-hosting fallback: killall own lsphp/php-fpm workers" \
-      sh -c "pkill -9 -u '$(id -un)' -f 'lsphp|php-fpm|php-cgi' || true"
+    act "shared-hosting fallback: kill $owner's lsphp/php-fpm workers" \
+      sh -c "pkill -9 -u '$owner' -f 'lsphp|php-fpm|php-cgi' || true"
     note "no --pool-cmd given; if root, prefer: systemctl restart php*-fpm (or lsws)"
   fi
 }
@@ -605,7 +632,15 @@ clean_site() { # the ordered chain for one root
   local root="$1"
   k0_snapshot "$root"
   k1_contain  "$root"
-  k2_kill_runtime "$root"
+  # If K2 could not do its job, everything after it is actively harmful: K4
+  # deletes files while the guard daemon and the shared-memory replica are still
+  # running, which is the sequence that makes this malware look unkillable.
+  # Stop on this site rather than produce a cleanup that undoes itself.
+  if ! k2_kill_runtime "$root"; then
+    crit "K2 did not complete for $root - skipping K3-K5 for this site."
+    note "Nothing was deleted here. Fix the condition K2 reported and rerun."
+    return 1
+  fi
   k3_sever_prepend "$root"
   k4_files "$root"
   [ "$DO_DB" -eq 1 ] && k5_database "$root"

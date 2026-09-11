@@ -19,6 +19,11 @@ eradication order, and only then touch `sc403-killchain.sh`.
 > decoded source side by side with the original - is written up in the companion
 > article, *Anatomy of a Self-Healing WordPress Implant*.
 >
+> **Running a hosting platform?** Go to
+> **[HOSTING-PROVIDERS.md](HOSTING-PROVIDERS.md)** instead - fleet triage, the
+> account-level rule, the log sweep only you can run, and what to tell customers.
+> Two of the three things that stop this malware are only reachable with root.
+>
 > Researching *why* this works rather than how to clean it? See
 > **[TECHNICAL.md](TECHNICAL.md)** - the root cause, the trust-boundary analysis,
 > and why only kernel-level controls bind.
@@ -462,13 +467,14 @@ the scanner worked out on its own.
 | 11 | Known SHA-256 hashes | Eight 4.0.3-era artefacts. Expected to miss on 4.3.24, which is the point. |
 | 12 | **Access logs for `?p=<derived id>`** | Each hit is an admin browser that fetched the worker. This is how you find out *which* browsers, and when, from archived logs. |
 | 13 | Database via WP-CLI: `sc_*` options and transients, **the fourteen derived keys**, the payload row, oversized options, `sc_cron_fetch` and generated-looking cron hooks | Where the payload survives file deletion. The derived keys are the ones nothing else looks for. |
-| 14 | **Orphaned 12-hex option rows** | Rows in the derived shape that this `ABSPATH` does *not* predict: the site was moved or copied while infected, and the stale `sw_url` still names a worker registered in somebody's browser. |
-| 15 | **Hidden administrator diff** and `session_tokens` count | Compares `wp user list` against a raw SQL join on `usermeta`. The implant filters `pre_user_query` and REST - it cannot filter `$wpdb`. |
+| 14 | **The `sc_reins_*` scoreboard** | The implant counts your deletions and stops rebuilding a drop-in after three in one UTC day. A site at the cap looks cleaned and is not. See [the scoreboard](#read-the-scoreboard-before-you-believe-a-quiet-site). |
+| 15 | **Orphaned 12-hex option rows** | Rows in the derived shape that this `ABSPATH` does *not* predict: the site was moved or copied while infected, and the stale `sw_url` still names a worker registered in somebody's browser. |
+| 16 | **Hidden administrator diff** and `session_tokens` count | Compares `wp user list` against a raw SQL join on `usermeta`. The implant filters `pre_user_query` and REST - it cannot filter `$wpdb`. |
 
-Check 15 is the one worth knowing even if you never run this script: any admin
+Check 16 is the one worth knowing even if you never run this script: any admin
 present in SQL but absent from the Users screen is concealment, full stop.
 
-Check 14 is the one nobody else does. It only exists because every name comes
+Check 15 is the one nobody else does. It only exists because every name comes
 from the install path, so moving a site silently orphans the implant's own state
 - including the one piece of information you cannot recompute afterwards.
 
@@ -516,7 +522,9 @@ which your control panel shows you:
 Then look for exactly those names in File Manager, and paste the `--sql` output
 into phpMyAdmin.
 
-**Then:** contact your host. Say the words *"self-healing malware with an
+**Then:** contact your host, and send them
+[HOSTING-PROVIDERS.md](HOSTING-PROVIDERS.md) - it is written for them, and it
+covers the two steps you cannot do yourself. Say the words *"self-healing malware with an
 `auto_prepend_file` persistence chain, please check every site under my account"*.
 Hosts running Imunify360 or similar can often see it from the outside, and only
 they can restart your PHP workers - which you need, because the payload also lives
@@ -609,6 +617,74 @@ draft keeps it.
 
 ---
 
+## Read the scoreboard before you believe a quiet site
+
+This is the single most useful thing in the database, and it is the reason
+"I deleted it and it stayed gone" is not evidence of anything.
+
+Before rewriting a drop-in, the implant asks itself whether it is allowed to:
+
+```php
+function sc_reinstall_allowed($key) {           // consulted BEFORE each rewrite
+    $rec = @get_option('sc_reins_' . $key, ""); // format: "<day>|<count>"
+    if (is_string($rec) && strpos($rec, '|') !== false) {
+        $parts = explode('|', $rec, 2);
+        if ((int) $parts[0] === (int)(time() / 86400) && (int) $parts[1] >= 3) return false;
+    }
+    return true;
+}
+```
+
+Three rebuilds per drop-in per UTC day, and then it stops. It is counting your
+deletions. Delete the same file a fourth time on the same day and **it does not
+come back** - until the day number changes at midnight, when the counter is
+effectively reset and the file returns.
+
+So the failure mode is not that the malware wins the fight in front of you. It is
+that it concedes the fight, lets you go home, and restores itself overnight. If
+you have ever cleaned a WordPress site, verified it, and found it dirty the next
+morning, this is a very good candidate for why.
+
+The counters are readable, and the scanner reads them for you:
+
+```
+-- The implant's own scoreboard
+  [CRITICAL] sc_reins_adv: 3 rebuilds TODAY - at the daily cap, so this file has stopped coming back
+  [WARNING ] sc_reins_db: 2 rebuild(s) today - 1 short of the cap
+  [INFO    ] sc_reins_oc: 1 rebuild(s) on 2026-09-10
+  [WARNING ] sc_ini_fail = 3 failed attempt(s) to write the pre-WordPress hook
+  [CRITICAL] sc_ini_dead: the .user.ini circuit breaker opened 24h ago
+            It gave up on auto_prepend_file persistence because its own canary
+            said the site was fataling. Check WordPress's recovery_mode emails
+            around the same window - they usually line up.
+  [INFO    ] sc_fetch_fails = 5 failed C2 fetch(es)
+            These rows are a timeline of the fight, written by the other side.
+            The day number is (int)(time()/86400); today is 20707.
+  [CRITICAL] THIS SITE IS IN BACKOFF. A clean result right now proves nothing.
+            Before rewriting a drop-in the implant checks sc_reins_<key>; at three
+            rebuilds in one UTC day it stops rewriting that file until midnight.
+            Somebody deleted these three times, saw them stay gone, and was meant
+            to conclude the site was clean. Verify AFTER 00:00 UTC, never before.
+```
+
+Two things fall out of that, and both change what you do:
+
+1. **Verify after midnight UTC, not before.** If any `sc_reins_*` counter is at
+   three for the current day, your verification window is worthless. Wait for the
+   day to roll over and check again.
+2. **Read these rows before you delete them.** `sc_reins_*` tells you how many
+   times somebody has already been round this loop on this site - which is often
+   the honest answer to "has anyone tried to clean this before?" And `sc_ini_dead`
+   means the implant's own canary refused the `auto_prepend_file` write because
+   the site was fataling, which usually lines up with WordPress's own
+   `recovery_mode_email_last_sent`. They are a timeline of the fight, written by
+   the other side.
+
+`sc403-guard.php` reports the same thing in wp-admin, including the backoff
+warning, so the person who did not read this far still gets told.
+
+---
+
 ## Eradication order
 
 If the scanner comes back critical, this is the sequence. **The order is the
@@ -686,6 +762,31 @@ Only after all eight: log back in, from a cleaned browser, with a new password.
 and contain the siblings; `--vaccinate` plants the spread marker on the way out;
 `--reset-cron` deletes the whole `cron` option row, which is the only reliable
 way to remove a hook whose name you cannot predict - WordPress rebuilds it.
+
+### Which user to run them as
+
+| Script | Runs as | Enforced? |
+|---|---|---|
+| `sc403-derive.sh` | anyone, anywhere. It is arithmetic on a string. | n/a |
+| `sc403-scan.sh` | any user. As root it discovers sites under `/home`, `/var/www`, `/srv`; as a normal user it searches `$HOME`. | no - it only reads |
+| `sc403-dbdump.sh` | the site's user, or root. It needs to read `wp-config.php`. | no |
+| `sc403-vaccinate.sh` | the site's user, or root. As root it sets ownership to match the site. | no |
+| `sc403-killchain.sh` | **root, or the site's own user** | yes - K2 checks and refuses to continue on a mismatch |
+| `sc403-superclean.sh` | **root** (the engine needs it) | yes - exits 77, unless `--build-only` |
+| `wp-sc-account-cleaner-v45.sh` | **root only** | yes - exits immediately if `EUID != 0` |
+
+The killchain check exists because of a subtlety that cost me an hour. The
+implant's guard daemon, its shared-memory segment and the PHP workers all belong
+to **the site's OS user**, not to whoever launched the cleanup. So K2 targets the
+owner of the site root, which it reads off the filesystem - not `id -un`. Run it
+as root against a site owned by `wpclient` and it correctly goes after
+`wpclient`'s processes.
+
+If it cannot do that - you are neither root nor the owner - it says so and
+**stops the chain for that site before K3**. That is deliberate: deleting files
+while the daemon and the shm replica are still alive is precisely the sequence
+that makes this malware look immortal, so a killchain that cannot complete K2 is
+worse than one that does not run.
 
 Two arguments are load-bearing and neither can be guessed for you:
 

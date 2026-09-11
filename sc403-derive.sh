@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # sc403-derive.sh - compute every SC 4.3.24 identifier for a site, from ABSPATH.
 #
-# SC 4.3.24 has no stable file hashes (every write is padded with 4-5.5 MB of
-# random hex) and no fixed filenames. What it does have is a naming algorithm,
+# SC 4.3.24 has no stable file hashes (every write is padded to a random total
+# size between 5.5 and 7.0 MB with random hex comments) and no fixed filenames.
+# What it does have is a naming algorithm,
 # and the algorithm takes exactly one input the defender already knows: the
 # site's ABSPATH. Everything below is therefore computable offline, before you
 # touch the server, and is exact rather than heuristic.

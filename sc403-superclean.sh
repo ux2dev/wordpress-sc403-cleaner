@@ -5,7 +5,7 @@
 # analysis showed it lacks:
 #   PRE   1. computes the md5(ABSPATH+role) artifact names for every site, and
 #            the two derived browser endpoints (?p=<sw>, ?p=<inst>) and the
-#            twelve derived private option keys, and injects the file names
+#            fourteen derived private option keys, and injects the file names
 #            (plus extra 4.3.24 markers) into the cleaner's IOC_REGEX -
 #            exact, per-account IoCs instead of heuristics
 #         2. captures the service-worker evidence from every site database
@@ -126,7 +126,8 @@ for root in "${ROOTS[@]}"; do
               "ep_sw:$EP_SW" "ep_inst:$EP_IN"; do
     printf '%s\t%s\t%s\n' "$root" "${pair%%:*}" "${pair#*:}" >> "$DERIVED_TSV"
   done
-  for o in sw_url sw_cached sw_config sw_config_sig srv_key page_cached js_cached src bp bu ic errors; do
+  for o in sw_url sw_cached sw_config sw_config_sig srv_key page_cached js_cached \
+           src issued bp bu ic errors ""; do
     printf '%s\topt_%s\t%s\n' "$root" "$o" "$(optkey "$A" "$o")" >> "$DERIVED_TSV"
   done
   EXTRA_NAMES="$EXTRA_NAMES|${HTL}[.]php|[.]${LDR}[.]php|${LDR}[.]php|core_${CORE}[.]php|${ZIP}[.]zip|own_${OWN}[.]php|${INST}[.]php|[.]g[a-z]{0,3}_${G}|${OPT}"

@@ -212,6 +212,20 @@ sha256_file() {
 
 file_size() { wc -c < "$1" 2>/dev/null | tr -d ' '; }
 
+# Day number -> date. The implant stores (int)(time()/86400), so day 20700 is
+# 2026-09-10. GNU and BSD date disagree about how to be told this.
+day_to_date() {
+    local secs=$(( $1 * 86400 ))
+    date -u -d "@$secs" '+%Y-%m-%d' 2>/dev/null \
+      || date -u -r "$secs" '+%Y-%m-%d' 2>/dev/null \
+      || echo "day $1"
+}
+
+epoch_age_hours() {
+    local now; now=$(date -u +%s)
+    echo $(( (now - $1) / 3600 ))
+}
+
 # True when the file contains a base64-ish run of at least $2 characters.
 # Implemented in awk because BSD grep rejects interval repetitions above 255.
 has_long_b64() {
@@ -674,6 +688,71 @@ check_logs() {
     fi
 }
 
+# The implant's own record of how the cleanup went. Read this before you
+# believe a quiet site.
+check_fight_log() {
+    local prefix="$1" out line name value day count today capped=0 any=0
+    today=$(( $(date -u +%s) / 86400 ))
+
+    out=$($wp db query "SELECT option_name, option_value
+                        FROM \`${prefix}options\`
+                        WHERE option_name LIKE 'sc\\_reins\\_%'
+                           OR option_name IN ('sc_ini_fail','sc_ini_dead','sc_ht_fail',
+                                              'sc_fetch_fails','sc_pad_off_ts');" \
+          --skip-column-names 2>/dev/null)
+    [ -n "$out" ] || return 0
+
+    head2 "The implant's own scoreboard"
+    while IFS=$'\t' read -r name value; do
+        [ -n "$name" ] || continue
+        any=1
+        case "$name" in
+        sc_reins_*)
+            day="${value%%|*}"; count="${value##*|}"
+            case "$day$count" in *[!0-9]*|'') info "$name = $value"; continue ;; esac
+            if [ "$day" -eq "$today" ] && [ "$count" -ge 3 ]; then
+                crit "$name: ${count} rebuilds TODAY - at the daily cap, so this file has stopped coming back"
+                capped=1
+            elif [ "$day" -eq "$today" ]; then
+                warn "$name: ${count} rebuild(s) today - $((3 - count)) short of the cap"
+            else
+                info "$name: ${count} rebuild(s) on $(day_to_date "$day")"
+            fi
+            ;;
+        sc_ini_dead)
+            case "$value" in ''|*[!0-9]*) info "$name = $value"; continue ;; esac
+            crit "$name: the .user.ini circuit breaker opened $(epoch_age_hours "$value")h ago"
+            note "It gave up on auto_prepend_file persistence because its own canary"
+            note "said the site was fataling. Check WordPress's recovery_mode emails"
+            note "around the same window - they usually line up."
+            ;;
+        sc_ini_fail|sc_ht_fail)
+            warn "$name = $value failed attempt(s) to write the pre-WordPress hook"
+            ;;
+        sc_fetch_fails)
+            info "$name = $value failed C2 fetch(es)"
+            ;;
+        sc_pad_off_ts)
+            info "$name = padding suppressed, memo set $(epoch_age_hours "$value")h ago"
+            ;;
+        *) info "$name = $value" ;;
+        esac
+    done <<< "$out"
+
+    [ "$any" -eq 1 ] || return 0
+
+    note "These rows are a timeline of the fight, written by the other side."
+    note "The day number is (int)(time()/86400); today is $today."
+
+    if [ "$capped" -eq 1 ]; then
+        crit "THIS SITE IS IN BACKOFF. A clean result right now proves nothing."
+        note "Before rewriting a drop-in the implant checks sc_reins_<key>; at three"
+        note "rebuilds in one UTC day it stops rewriting that file until midnight."
+        note "Somebody deleted these three times, saw them stay gone, and was meant"
+        note "to conclude the site was clean. Verify AFTER 00:00 UTC, never before."
+    fi
+}
+
 # 13. Database, via WP-CLI. Read-only queries only.
 check_database() {
     local site="$1" a="$2" wp out prefix o keylist=""
@@ -707,11 +786,25 @@ check_database() {
         okay "no sc_* options or transients"
     fi
 
-    # 13b. The ten-hex payload row.
+    # 13b. The fight log.
+    #
+    # Before rewriting a drop-in the implant consults sc_reinstall_allowed(),
+    # which reads sc_reins_<key> in the form "<day number>|<count>" and refuses
+    # the rewrite once the count reaches 3 for the current day. So it counts how
+    # many times you have deleted each file, and after the third deletion in one
+    # UTC day it STOPS PUTTING IT BACK - until midnight, when the day number
+    # changes and the counter is effectively reset.
+    #
+    # This matters more than it sounds. A site in backoff looks cleaned. It is
+    # not. Anyone who deleted the drop-ins three times, saw them stay gone and
+    # went home has verified nothing at all.
+    check_fight_log "$prefix"
+
+    # 13c. The ten-hex payload row.
     out=$($wp option get "$D_OPT" 2>/dev/null | head -c 40)
     [ -n "$out" ] && crit "predicted payload option '$D_OPT' exists (base64 of a gzipped payload)"
 
-    # 13c. The fourteen derived private options. These do NOT start with sc_,
+    # 13d. The fourteen derived private options. These do NOT start with sc_,
     # which is why prefix-based cleanups miss them and prefix-based deletes
     # destroy the evidence in sw_cached and issued.
     for o in $PRIV_OPTS ""; do
@@ -730,7 +823,7 @@ check_database() {
         okay "none of the fourteen derived option keys are present"
     fi
 
-    # 13d. Orphans: derived-shaped rows that do NOT belong to this ABSPATH.
+    # 13e. Orphans: derived-shaped rows that do NOT belong to this ABSPATH.
     # Every name comes from the install path, so a site that was moved or
     # copied while infected leaves its old rows behind -- including a worker
     # URL still registered in somebody's browser at an id nobody can derive.
@@ -751,7 +844,7 @@ check_database() {
         okay "no unexplained 12-hex option rows"
     fi
 
-    # 13e. Oversized options.
+    # 13f. Oversized options.
     out=$($wp db query "SELECT option_name, LENGTH(option_value) AS bytes
                         FROM \`${prefix}options\`
                         WHERE LENGTH(option_value) > 50000
@@ -760,7 +853,7 @@ check_database() {
         info "large option (validate ownership before touching): $line"
     done <<< "$out"
 
-    # 13f. Scheduled recovery. The hook names rotate; the cron array is the
+    # 13g. Scheduled recovery. The hook names rotate; the cron array is the
     # authority, and a corrupted cron array is itself an indicator.
     if $wp cron event list --fields=hook --format=csv 2>/dev/null | grep -qi 'sc_cron_fetch'; then
         crit "scheduled event sc_cron_fetch is registered"
@@ -773,7 +866,7 @@ check_database() {
         warn "cron hook with a generated-looking name: $line"
     done <<< "$out"
 
-    # 13g. Hidden administrators: API view against raw SQL.
+    # 13h. Hidden administrators: API view against raw SQL.
     local api_admins raw_admins hidden
     api_admins=$($wp user list --role=administrator --field=user_login --format=csv 2>/dev/null | sort -u)
     raw_admins=$($wp db query "SELECT u.user_login FROM \`${prefix}users\` u
@@ -799,7 +892,7 @@ check_database() {
         done <<< "$raw_admins"
     fi
 
-    # 13h. Forged sessions. The implant writes session_tokens meta directly for
+    # 13i. Forged sessions. The implant writes session_tokens meta directly for
     # existing administrators, with a 14-day expiry. Rotating a password does
     # not invalidate those; only rotating the salts does.
     out=$($wp db query "SELECT COUNT(*) FROM \`${prefix}usermeta\`
