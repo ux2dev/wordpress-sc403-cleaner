@@ -1,4 +1,4 @@
-# SC 4.0.3 - technical notes for defenders
+# SC 4.x - technical notes for defenders
 
 Why this infection behaves the way it does, written for people who are trying to
 stop it rather than run it. It explains the mechanism only as far as needed to
@@ -6,8 +6,9 @@ justify the defenses. If you want the operational checklist, that is in the
 [README](README.md); this document is the reasoning underneath it.
 
 Everything here is drawn from public analysis (MD Pabel, Monarx, Seven Labs,
-Jump.BG, August 2026) and from PHP and WordPress core source. Code shown is
-deobfuscated, simplified and inert - it illustrates a shape, it is not a payload.
+Jump.BG, August 2026), from a full teardown of the September `SCV:4.3.24` build,
+and from PHP and WordPress core source. Code shown is deobfuscated, simplified
+and inert - it illustrates a shape, it is not a payload.
 
 ---
 
@@ -164,6 +165,34 @@ how many there are, it is that they occupy **different trust domains**:
 | ZIP replicas | top-level file deletion | seeded into uploads and theme dirs too |
 | System V shared memory | *all disk deletion* | lives in the PHP process, not on disk |
 | `auto_prepend_file` loader | WordPress being bypassed | runs before WordPress at the PHP layer |
+
+### What 4.3.24 added to the mesh
+
+The September build keeps all of that and adds two stores, both outside the
+filesystem:
+
+- **The browser.** A service worker at scope `/`, registered from wp-admin,
+  which reads the login POST in cleartext and can re-upload the payload through
+  WordPress's own plugin-upload route with the administrator's session. It is a
+  peer in the mesh like any other node, except that it lives on hardware you do
+  not own.
+- **A detached CLI process.** A guard daemon started with `popen`, holding the
+  shared-memory segment alive and pinning its own hash, which is why restarting
+  the PHP-FPM pool is a necessary step rather than good hygiene.
+
+It also changed what the other stores look like, and every change is aimed at
+the person cleaning up rather than at the victim:
+
+| | Effect on the defender |
+|---|---|
+| Every write padded to 5.5-7.0 MB of random hex comments | File hashes stop working as indicators entirely. |
+| Filenames, HTTP endpoints and option keys all derived from `md5(ABSPATH . role)` | Nothing is constant between two infected sites - and everything is computable in advance by anyone who knows the install path, which is the defender. |
+| Fourteen option rows keyed by `md5(ABSPATH . '93819' . slot)[0:12]` | A `LIKE 'sc\_%'` cleanup misses the implant's real state *and* destroys nothing, while a prefix delete destroys the evidence rows that share the prefix. |
+| Deletion attempts counted, with a 3-per-drop-in-per-day backoff | A cleanup that failed looks like one that worked, until midnight UTC. |
+| An "is this site already infected" test based on the timestomp watermark | The malware skips any site with a watermarked PHP file of 5 KB or more in `mu-plugins` or `plugins`. |
+
+The last row is the interesting one. The check exists so two infections do not
+fight over the same site, and it takes a property the site owner can also set.
 
 Deletion only wins if you sever **every** path at once, faster than any single one
 executes. On a live site answering requests, you cannot - one surviving path runs

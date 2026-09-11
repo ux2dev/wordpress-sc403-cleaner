@@ -29,7 +29,7 @@ sha256,a3c6fcd1df2c1fec977427f056aa45852f7ae7a9f63ff79813057e451eeed6c3,high,db.
 sha256,b516bd7eb514b80555fc3a04ac30405e52f128c6d08da3baf03e74f1ad2fe1fb,high,infected theme functions.php,mdpabel
 sha256,ac7c266d12c6d3d979594b4d74c545ecf2546ac704f2ac07bde1276010747c0d,high,malicious .user.ini,mdpabel
 sha256,7bafee00a010ed3db3521a89e8f5d50d2f677204c56995e99c7603768a9f0bd2,high,service-worker template (6429 B),mdpabel
-username_pattern,^(admin_|adm_|administrator_|backup_)[0-9a-f]{6,10}$,high,generated hidden administrator,mdpabel/monarx
+username_pattern,"^(admin_|adm_|administrator_|backup_)[0-9a-f]{6,10}$",high,generated hidden administrator,mdpabel/monarx
 username,api_handler8c7ca775,medium,fraudulent administrator observed on edu.gov.sc,sevenlabs
 filename_pattern,.g_*.php,high,guard stub,monarx
 filename_pattern,<first 8 of md5(ABSPATH."ldr")>.php,high,loader; site-specific,mdpabel
@@ -52,3 +52,51 @@ rest_route,/wp-json/ticker/v1/sweep,medium,hidden REST endpoint,sevenlabs
 behaviour,filemtime mod 100000 == 93819,high,shared timestomp watermark,monarx
 behaviour,Service-Worker-Allowed: /,high,scope expansion for the browser implant,mdpabel
 behaviour,auto_prepend_file in .user.ini or .htaccess,high,pre-WordPress execution,all
+marker,SCV:4.3.24,high,version stamp written into every file the 4.3.24 build creates,ux2dev
+marker,/* SCV:,high,version stamp prefix; the build number after it changes,ux2dev
+marker,SC_CORE_BOOT_VER,high,boot guard constant preventing double-loading of the core,ux2dev
+marker,"$GLOBALS['sc_boot_ver']",high,boot guard global,ux2dev
+marker,SC_WC,high,"comment left on the define('WP_CACHE', true) line it adds to wp-config.php",ux2dev
+marker,php.euc-eludom-etile,high,plugin slug stored REVERSED to defeat grep (elite-module-cue.php),ux2dev
+option,sc_c2_cache,high,resolved C2 URL list in CLEARTEXT - capture before cleanup,ux2dev
+option,sc_last_c2,high,C2 host that answered last; cleartext,ux2dev
+option,sc_own_rec,high,own-file recovery state,ux2dev
+option,sc_own_manifest,high,manifest of the files it owns,ux2dev
+option,sc_sw_had,high,flag: a service worker was served from this site,ux2dev
+option,sc_sw_last_url,high,last service-worker scriptURL handed to a browser,ux2dev
+option,sc_ini_fail,high,circuit breaker counter for failed auto_prepend_file installs,ux2dev
+option,sc_ini_dead,high,circuit breaker tripped; stops retrying the INI write,ux2dev
+option,sc_fetch_fails,high,C2 fetch failure counter,ux2dev
+option,sc_pad_off_ts,high,24h memo suppressing the padding routine,ux2dev
+option,sc_reins_adv,high,per-drop-in reinstall backoff counter (3/day),ux2dev
+option,sc_reins_db,high,per-drop-in reinstall backoff counter (3/day),ux2dev
+option_formula,"substr(md5(ABSPATH . '93819' . slot), 0, 12)",high,"derived private option key; 14 slots; value is base64(keybyte . xor(serialize(v), keybyte))",ux2dev
+option_slot,sw_url,high,scriptURL of the service worker registered in admin browsers,ux2dev
+option_slot,sw_cached,high,the service-worker JavaScript actually being served,ux2dev
+option_slot,issued,high,which administrators hold forged 14-day sessions and until when,ux2dev
+option_slot,bu,high,hidden administrator username in reversible form,ux2dev
+option_slot,bp,high,hidden administrator password in reversible form,ux2dev
+option_formula,"substr(md5(ABSPATH . 'opt'), 0, 10)",high,payload row; value is base64(gzip(payload)) with no XOR,ux2dev
+endpoint_formula,"91000000 + hexdec(substr(md5(ABSPATH . 'ep' . role), 0, 7)) % 8999999",high,derived ?p= endpoint id; roles sw and inst,ux2dev
+endpoint_pattern,?p=9XXXXXXX,high,eight-digit post ID that cannot exist; a request for one is the browser fetching the worker,ux2dev
+filename_pattern,<first 8 of md5(ABSPATH."htl")>.php,high,visible loader; site-specific,ux2dev
+filename_pattern,.<first 8 of md5(ABSPATH."ldr")>.php,high,hidden loader; site-specific,ux2dev
+filename_pattern,.sc_<first 8 of md5(ABSPATH."dir")>/,high,staging directory; site-specific,ux2dev
+filename_pattern,core_<first 8 of md5(ABSPATH."core")>.php,high,canonical core inside the staging directory,ux2dev
+filename_pattern,own_<first 8 of md5(ABSPATH."own")>.php,high,state manifest inside the staging directory,ux2dev
+filename_pattern,.wp-object-cache-<first 8 of md5(ABSPATH."oc")>.dat[.lkg],high,object-cache replica,ux2dev
+filename_pattern,.g_/.gl_/.gm_/.gp_/.gs_/.gv_<first 8 of md5(ABSPATH."g")>,high,guard daemon files; .gm_ holds the tamper-pinned hash,ux2dev
+token_pattern,data-sc-<first 6 of md5(ABSPATH."js")>,medium,attribute on the injected front-end script tag,ux2dev
+c2,basic-junior.com,high,C2 host recovered from sc_c2_cache on a live infection (path /SGct2K),ux2dev
+c2,railroad-boot.com,high,C2 host recovered from sc_c2_cache (path /SGct2K),ux2dev
+c2,great-basic.com,high,C2 host recovered from sc_c2_cache (path /SGct2K),ux2dev
+c2,root-cherry.com,high,C2 host recorded in sc_last_c2 (path /n3s9c2a),ux2dev
+rpc,0xrpc.io/eth,medium,Ethereum RPC provider used to resolve C2 from the contracts,ux2dev
+plugin_alias,elite-module-cue,medium,fake plugin identity - "Elite Module Cue"; author "Ava King",ux2dev
+plugin_uri,https://king.dev/plugins/elite-module-cue/,low,borrowed Plugin URI in the fake header; the domain is real and unrelated,ux2dev
+behaviour,PHP file in wp-content larger than 4 MB,high,padding routine inflates every write to 5.5-7.0 MB of random hex comments,ux2dev
+behaviour,twin MU-plugin and ordinary plugin with the same slug,high,either replica restores the other,ux2dev
+behaviour,mu-plugin file mode 0444,medium,discourages casual editing; the implant chmods around it,ux2dev
+behaviour,"define('WP_CACHE', true) added to wp-config.php",high,forces WordPress to load the advanced-cache.php drop-in,ux2dev
+behaviour,session_tokens usermeta written directly for existing admins,high,forged 14-day sessions; survive password changes; only salt rotation kills them,ux2dev
+username_pattern,^administrator_[0-9a-f]{10}$,high,hidden administrator generated by 4.3.24,ux2dev
